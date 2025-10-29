@@ -1,8 +1,10 @@
 import logging
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from telegram.constants import ParseMode
 import os
+from flask import Flask, request
+from telegram import Update, Bot
+from telegram.ext import Application
+from telegram.constants import ParseMode
+import json
 
 # Налаштування логування
 logging.basicConfig(
@@ -13,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 # Конфігурація
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8281150360:AAEHkDvp9XCWtE9XTNRZfJUE7LA4wILBz2o")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://worker-production-1934.up.railway.app")
 GROUP_CHAT_ID = -1002798600170
+PORT = int(os.getenv("PORT", 8000))
+
+app = Flask(__name__)
+bot = Bot(token=BOT_TOKEN)
 
 class CoachingBot:
     """Коучинг бот з турботливої дисципліни"""
@@ -63,24 +70,40 @@ class CoachingBot:
 # Ініціалізуємо бота
 coaching_bot = CoachingBot()
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обробка повідомлень"""
+@app.route('/', methods=['GET'])
+def health():
+    """Health check"""
+    return {"status": "ok", "message": "🤖 Bot is running!"}, 200
+
+@app.route(f'/webhook', methods=['POST'])
+def webhook():
+    """Webhook для Telegram"""
     try:
+        data = request.get_json()
+        logger.info(f"📨 Webhook отримано: {json.dumps(data, ensure_ascii=False)[:200]}")
+        
+        update = Update.de_json(data, bot)
+        
+        if not update.message or not update.message.text:
+            logger.info("❌ Повідомлення без тексту, ігноруємо")
+            return {"ok": True}, 200
+        
         # Ігноруємо повідомлення від самого бота
         if update.message.from_user.is_bot:
-            return
+            logger.info("⚠️  Повідомлення від бота, ігноруємо")
+            return {"ok": True}, 200
         
-        # Отримуємо інформацію про повідомлення
-        text = update.message.text or ""
+        text = update.message.text
         username = update.message.from_user.first_name or "Друже"
         chat_id = update.message.chat_id
+        message_id = update.message.message_id
         
         logger.info(f"📨 Нове повідомлення від {username} (chat_id: {chat_id}): {text[:100]}")
         
         # Перевіряємо чи це групова повідомлення
         if chat_id != GROUP_CHAT_ID:
             logger.info(f"❌ Повідомлення з іншого чату (ID: {chat_id}), ігноруємо")
-            return
+            return {"ok": True}, 200
         
         logger.info(f"✅ Повідомлення з групи! Перевіряємо...")
         
@@ -94,37 +117,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             logger.info(f"💬 Генеруємо відповідь...")
             
             # Відправляємо відповідь
-            await update.message.reply_text(
-                response,
+            bot.send_message(
+                chat_id=chat_id,
+                text=response,
+                reply_to_message_id=message_id,
                 parse_mode=ParseMode.HTML
             )
             logger.info("✅ Відповідь надіслана!")
         else:
             logger.info("⏭️  Не коучинг запит, ігноруємо")
+        
+        return {"ok": True}, 200
     
     except Exception as e:
-        logger.error(f"❌ Помилка: {e}", exc_info=True)
+        logger.error(f"❌ Помилка в webhook: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}, 500
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /start"""
-    await update.message.reply_text(
-        "🤖 Привіт! Я - коуч з турботливої дисципліни.\n\n"
-        "Напиши мені своє питання або проблему, і я допоможу! 💪"
-    )
-
-def main() -> None:
-    """Запуск бота"""
-    logger.info("🚀 Запуск бота...")
-    
-    # Створюємо Application
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Обробники
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Запускаємо бота
-    logger.info("✅ Бот готовий! Слухаємо Telegram...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+def setup_webhook():
+    """Налаштування webhook"""
+    try:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        logger.info(f"🔗 Встановлюємо webhook: {webhook_url}")
+        
+        bot.set_webhook(url=webhook_url)
+        logger.info("✅ Webhook встановлено!")
+    except Exception as e:
+        logger.error(f"❌ Помилка при встановленні webhook: {e}")
 
 if __name__ == '__main__':
-    main()
+    logger.info("🚀 Запуск Flask сервера...")
+    setup_webhook()
+    app.run(host='0.0.0.0', port=PORT, debug=False)
