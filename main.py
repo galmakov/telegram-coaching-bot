@@ -1,24 +1,54 @@
 import logging
+import os
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
+from anthropic import Anthropic
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8281150360:AAEHkDvp9XCWtE9XTNRZfJUE7LA4wILBz2o"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8281150360:AAEHkDvp9XCWtE9XTNRZfJUE7LA4wILBz2o")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GROUP_CHAT_ID = -1002798600170
-OWNER_ID = 204234630  # Твій User ID
+
+# Налаштовуємо Claude
+if not ANTHROPIC_API_KEY:
+    logger.error("❌ ANTHROPIC_API_KEY не знайдена!")
+    raise ValueError("Missing ANTHROPIC_API_KEY")
+
+client = Anthropic()
 
 class CoachingBot:
     def __init__(self):
+        self.coaching_system = """Ти - експертний коуч з турботливої дисципліни. 
+
+ТВОЇ ХАРАКТЕРИСТИКИ:
+- Чітка та пряма комунікація (без багатослів'я)
+- Фокус на рішеннях та результатах
+- Справжня турбота та емпатія
+- Спонукаєш людину до самостійного розуміння
+- Встановлюєш високі очікування
+- Розмовляєш як приятель, не як учитель
+- Даєш конкретні, практичні поради
+
+ПРАВИЛА:
+1. Відповідай КОРОТКО (2-3 речення максимум)
+2. Запитай уточнюючі питання для кращого розуміння
+3. Будь конкретним, не теоретичним
+4. Використовуй емодзі розумно (не більше 2-3)
+5. Фокусуйся на дії, а не на почуттях
+6. Давай людині власне рішення знайти, але спрямовуй її
+
+ФОРМАТ:
+Починай з імені людини, дай короткий коментар, запитай уточнююче питання або дай конкретний совіт."""
+        
         self.help_keywords = {
             "питання": ["як", "що", "чому", "якщо", "чи", "де"],
             "проблема": ["не вдається", "не можу", "затруднення", "застряг"],
             "запит": ["допоможи", "порадь", "підскажи"],
             "мета": ["хочу", "мета", "план", "мрія"]
         }
-        self.pending_responses = {}  # {message_id: (username, original_text)}
     
     def is_coaching_request(self, text):
         text_lower = text.lower()
@@ -28,6 +58,26 @@ class CoachingBot:
             if any(kw in text_lower for kw in keywords):
                 return True
         return False
+    
+    def generate_claude_response(self, text, username):
+        """Генерує відповідь через Claude API"""
+        try:
+            message = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=300,
+                system=self.coaching_system,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"{username} запитує: \"{text}\"\n\nДай мудру, розгорнуту відповідь як коуч."
+                    }
+                ]
+            )
+            
+            return message.content[0].text
+        except Exception as e:
+            logger.error(f"❌ Помилка Claude: {e}")
+            return f"{username}, вибачте, технічна помилка. Спробуйте ще раз! 🤖"
 
 coaching_bot = CoachingBot()
 
@@ -46,81 +96,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         
         if coaching_bot.is_coaching_request(text):
-            logger.info(f"🎯 Коучинг запит! Перенаправляю...")
+            logger.info(f"🎯 Коучинг запит! Генерую відповідь через Claude...")
             
-            # Перенаправляємо запит тобі
-            forward_text = f"📨 НОВИЙ КОУЧИНГ ЗАПИТ\n\n👤 {username}:\n💬 \"{text}\"\n\nЯ очікую твою відповідь!"
+            # Генеруємо відповідь через Claude
+            response = coaching_bot.generate_claude_response(text, username)
             
-            msg = await context.bot.send_message(
-                chat_id=OWNER_ID,
-                text=forward_text,
+            logger.info(f"💬 Відповідь готова, надсилаю...")
+            
+            # Надсилаємо відповідь в групу
+            await update.message.reply_text(
+                response,
                 parse_mode=ParseMode.HTML
             )
-            
-            # Зберігаємо інформацію для подальшої відповіді
-            coaching_bot.pending_responses[msg.message_id] = {
-                "group_chat_id": GROUP_CHAT_ID,
-                "username": username,
-                "original_text": text,
-                "original_message_id": update.message.message_id
-            }
-            
-            logger.info(f"✅ Запит перенаправлено!")
+            logger.info("✅ Claude відповідь надіслана!")
         else:
-            logger.info("⏭️  Не коучинг")
+            logger.info("⏭️  Не коучинг запит")
     
     except Exception as e:
         logger.error(f"❌ Помилка: {e}")
 
-async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обробка твоєї відповіді на коучинг запит"""
-    try:
-        if not update.message.reply_to_message:
-            return
-        
-        original_msg_id = update.message.reply_to_message.message_id
-        
-        if original_msg_id not in coaching_bot.pending_responses:
-            return
-        
-        coaching_data = coaching_bot.pending_responses[original_msg_id]
-        response_text = update.message.text or ""
-        
-        logger.info(f"💬 Генеруюється відповідь...")
-        
-        # Надсилаємо твою відповідь в групу
-        final_response = f"{coaching_data['username']}, {response_text}"
-        
-        await context.bot.send_message(
-            chat_id=coaching_data["group_chat_id"],
-            text=final_response,
-            reply_to_message_id=coaching_data["original_message_id"],
-            parse_mode=ParseMode.HTML
-        )
-        
-        # Видаляємо з очікування
-        del coaching_bot.pending_responses[original_msg_id]
-        
-        logger.info("✅ Відповідь надіслана в групу!")
-    
-    except Exception as e:
-        logger.error(f"❌ Помилка при відправці відповіді: {e}")
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /start"""
-    await update.message.reply_text(
-        "🤖 Привіт! Я - коучинг бот.\n\n"
-        "Коли хтось запитає в групі - я перенаправлю тобі.\n"
-        "Просто відповідь на моє повідомлення, і я надішлю відповідь в групу! 💪"
-    )
-
 def main() -> None:
-    logger.info("🚀 Запуск бота з перенаправленням...")
+    logger.info("🚀 Запуск бота з Claude AI...")
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Обробники
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.REPLY, handle_reply))
+    # Обробник повідомлень
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     logger.info("✅ Бот готовий!")
