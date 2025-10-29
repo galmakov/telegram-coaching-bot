@@ -9,7 +9,7 @@ BOT_TOKEN = "8281150360:AAEHkDvp9XCWtE9XTNRZfJUE7LA4wILBz2o"
 OWNER_ID = 204234630
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /звіт для отримання щоденного звіту"""
+    """Команда /report для отримання щоденного звіту"""
     await update.message.reply_text(
         "📊 ЗВІТ З ГРУПИ: ЧАТ РАНКОВОГО КЛУБУ\n\n"
         "📅 Період: сьогодні\n\n"
@@ -29,7 +29,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "🤖 Привіт! Я - бот для звітів групи.\n\n"
         "📝 Доступні команди:\n"
-        "/звіт - отримати щоденний звіт\n\n"
+        "/report - отримати щоденний звіт\n\n"
         "💪 Готовий допомогти!"
     )
 
@@ -39,7 +39,7 @@ def main() -> None:
     
     # Команди
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("звіт", report_command))
+    application.add_handler(CommandHandler("report", report_command))
     
     logger.info("✅ Бот готовий!")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=False)
