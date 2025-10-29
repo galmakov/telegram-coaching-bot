@@ -1,5 +1,4 @@
 import logging
-import json
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
@@ -12,7 +11,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Токен бота
+# Конфігурація
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8281150360:AAEHkDvp9XCWtE9XTNRZfJUE7LA4wILBz2o")
 GROUP_CHAT_ID = -1002798600170
 
@@ -23,7 +22,7 @@ class CoachingBot:
         self.help_keywords = {
             "питання": ["як", "що", "чому", "якщо", "чи", "де", "котра", "який"],
             "проблема": ["не вдається", "не можу", "затруднення", "застряг", "не виходить", "складність", "проблема"],
-            "запит": ["допоможи", "порадь", "посоветуй", "підскажи", "зроби", "як мне"],
+            "запит": ["допоможи", "порадь", "посоветуй", "підскажи", "зроби"],
             "мета": ["хочу", "мета", "план", "цель", "мечта", "прагну", "мрія"]
         }
     
@@ -76,31 +75,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         username = update.message.from_user.first_name or "Друже"
         chat_id = update.message.chat_id
         
+        logger.info(f"📨 Нове повідомлення від {username} (chat_id: {chat_id}): {text[:100]}")
+        
         # Перевіряємо чи це групова повідомлення
         if chat_id != GROUP_CHAT_ID:
-            logger.info(f"Повідомлення з іншого чату (ID: {chat_id}), ігноруємо")
+            logger.info(f"❌ Повідомлення з іншого чату (ID: {chat_id}), ігноруємо")
             return
         
-        logger.info(f"Нове повідомлення від {username}: {text[:50]}")
+        logger.info(f"✅ Повідомлення з групи! Перевіряємо...")
         
         # Перевіряємо чи це коучинг запит
         if coaching_bot.is_coaching_request(text):
-            logger.info(f"Коучинг запит виявлено! Генеруємо відповідь...")
+            logger.info(f"🎯 Коучинг запит виявлено!")
             
             # Генеруємо коучингову відповідь
             response = coaching_bot.generate_response(text, username)
+            
+            logger.info(f"💬 Генеруємо відповідь...")
             
             # Відправляємо відповідь
             await update.message.reply_text(
                 response,
                 parse_mode=ParseMode.HTML
             )
-            logger.info("Відповідь надіслана!")
+            logger.info("✅ Відповідь надіслана!")
         else:
-            logger.info("Не коучинг запит, ігноруємо")
+            logger.info("⏭️  Не коучинг запит, ігноруємо")
     
     except Exception as e:
-        logger.error(f"Помилка: {e}")
+        logger.error(f"❌ Помилка: {e}", exc_info=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /start"""
@@ -111,6 +114,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     """Запуск бота"""
+    logger.info("🚀 Запуск бота...")
+    
     # Створюємо Application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -118,8 +123,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # Запускаємо бота
-    logger.info("🚀 Бот запущено!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("✅ Бот готовий! Слухаємо Telegram...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
