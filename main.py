@@ -71,6 +71,11 @@ class CoachingBot:
 coaching_bot = CoachingBot()
 
 @app.route('/', methods=['GET'])
+@app.route('/test', methods=['GET'])
+def test():
+    """Test endpoint"""
+    logger.info("🧪 TEST ENDPOINT CALLED!")
+    return {"status": "test ok"}, 200
 def health():
     """Health check"""
     return {"status": "ok", "message": "🤖 Bot is running!"}, 200
